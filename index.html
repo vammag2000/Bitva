@@ -242,7 +242,7 @@
   stickImg.onerror = () => { stickImgReady = false; };
   stickImg.src = 'stick.png';
 
-  const PLAYER_SPRITE_SCALE = 3.0;
+  const PLAYER_SPRITE_SCALE = 5.25;   // было 3.0, теперь +75%
   const playerImg = new Image();
   let playerImgReady = false;
   playerImg.onload = () => { playerImgReady = true; };
@@ -502,13 +502,13 @@
       }
     }
 
-    // Тень (сделана чуть шире, так как рыцарь широкий)
+    // Тень
     ctx.beginPath();
     ctx.arc(p.x, p.y + 4, p.radius * 1.2, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.fill();
 
-    // Основание палки вынесено к кулакам (1.1 вместо 0.55)
+    // Основание палки вынесено к кулакам
     const bx = p.x + Math.cos(stickAngle) * p.radius * 1.1;
     const by = p.y + Math.sin(stickAngle) * p.radius * 1.1;
     const tx = p.x + Math.cos(stickAngle) * (p.radius + p.stickLength);
@@ -549,12 +549,11 @@
       const drawH = drawW / aspect;
       ctx.save();
       ctx.translate(p.x, p.y);
-      // Поворот + Math.PI/2, так как на спрайте рыцарь смотрит вверх
       ctx.rotate(p.facing + Math.PI / 2);
       ctx.drawImage(playerImg, -drawW / 2, -drawH / 2, drawW, drawH);
       ctx.restore();
     } else {
-      // Фолбэк: синий круг, если картинки нет
+      // Фолбэк: синий круг
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
       ctx.fillStyle = '#4a9eff';
