@@ -120,7 +120,7 @@
 
   .dpad {
     position: absolute;
-    left: max(16px, env(safe-area-inset-left));
+    right: max(16px, env(safe-area-inset-right));
     bottom: max(16px, env(safe-area-inset-bottom));
     width: min(210px, 52vmin);
     height: min(210px, 52vmin);
@@ -154,7 +154,7 @@
 
   .attack-btn {
     position: absolute;
-    right: max(24px, env(safe-area-inset-right));
+    left: max(24px, env(safe-area-inset-left));
     bottom: max(24px, env(safe-area-inset-bottom));
     width: min(120px, 30vmin);
     height: min(120px, 30vmin);
@@ -215,12 +215,7 @@
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-  // Угол взмаха: 90°
   const SWING_ARC = 90 * Math.PI / 180;
-  // Фазы взмаха (% от длительности, сумма = 1.0):
-  //   0..0.45  — замах
-  //   0.45..0.85 — удар
-  //   0.85..1  — возврат
   const WINDUP_END = 0.45;
   const STRIKE_END = 0.85;
 
@@ -410,21 +405,17 @@
     playSwingSound();
   }
 
-  // Угол палки. Замах → резкий удар → плавный возврат.
   function getStickAngle() {
     if (player.swingTime > 0) {
       const prog = Math.min(1, player.swingTime / player.swingDuration);
       const halfArc = SWING_ARC / 2;
       if (prog < WINDUP_END) {
-        // Замах: facing → facing − halfArc
         const p = prog / WINDUP_END;
         return player.facing - halfArc * p;
       } else if (prog < STRIKE_END) {
-        // Удар: facing − halfArc → facing + halfArc
         const p = (prog - WINDUP_END) / (STRIKE_END - WINDUP_END);
         return player.facing - halfArc + SWING_ARC * p;
       } else {
-        // Возврат: facing + halfArc → facing
         const p = (prog - STRIKE_END) / (1 - STRIKE_END);
         return player.facing + halfArc - halfArc * p;
       }
@@ -488,7 +479,6 @@
     const p = player;
     const stickAngle = getStickAngle();
 
-    // След от удара — только на фазе удара
     if (p.swingTime > 0) {
       const prog = Math.min(1, p.swingTime / p.swingDuration);
       if (prog >= WINDUP_END && prog < STRIKE_END) {
