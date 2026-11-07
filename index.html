@@ -344,7 +344,7 @@
   function getStickAngle() {
     if (player.swingTime > 0) {
       const prog = Math.min(1, player.swingTime / player.swingDuration);
-      return player.facing + Math.PI * 2 * prog * player.swingDir;
+      return player.facing + Math.PI / 2 * prog * player.swingDir;
     }
     return player.facing;
   }
@@ -408,7 +408,7 @@
     if (p.swingTime > 0) {
       const prog = Math.min(1, p.swingTime / p.swingDuration);
       const startA = p.facing;
-      const endA = p.facing + Math.PI * 2 * prog * p.swingDir;
+      const endA = p.facing + Math.PI / 2 * prog * p.swingDir;
       const r = p.radius + p.stickLength;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, startA, endA, p.swingDir < 0);
