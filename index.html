@@ -107,12 +107,88 @@
     margin-bottom: 20px;
     text-shadow: 0 0 20px rgba(74, 158, 255, 0.5);
   }
+
+  /* ============ СЕНСОРНОЕ УПРАВЛЕНИЕ ============ */
+  #touch-controls {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    display: none;
+    pointer-events: none;
+  }
+  #touch-controls.visible { display: block; }
+
+  .dpad {
+    position: absolute;
+    left: max(16px, env(safe-area-inset-left));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    width: min(210px, 52vmin);
+    height: min(210px, 52vmin);
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr 1fr;
+    gap: 6px;
+    pointer-events: none;
+  }
+  .dpad .ctrl-btn {
+    pointer-events: auto;
+    width: 100%;
+    height: 100%;
+    font-size: clamp(20px, 5vmin, 28px);
+    color: #fff;
+    background: rgba(74, 158, 255, 0.18);
+    border: 2px solid rgba(74, 158, 255, 0.5);
+    border-radius: 12px;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    cursor: pointer;
+  }
+  .dpad .ctrl-btn.pressed {
+    background: rgba(74, 158, 255, 0.55);
+    border-color: rgba(74, 158, 255, 0.9);
+  }
+  .dpad-up    { grid-column: 2; grid-row: 1; }
+  .dpad-left  { grid-column: 1; grid-row: 2; }
+  .dpad-down  { grid-column: 2; grid-row: 3; }
+  .dpad-right { grid-column: 3; grid-row: 2; }
+
+  .attack-btn {
+    position: absolute;
+    right: max(24px, env(safe-area-inset-right));
+    bottom: max(24px, env(safe-area-inset-bottom));
+    width: min(120px, 30vmin);
+    height: min(120px, 30vmin);
+    border-radius: 50%;
+    font-size: clamp(36px, 9vmin, 48px);
+    color: #fff;
+    background: rgba(255, 120, 80, 0.3);
+    border: 3px solid rgba(255, 120, 80, 0.75);
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: transform 0.08s, background 0.08s;
+  }
+  .attack-btn.pressed {
+    background: rgba(255, 120, 80, 0.65);
+    transform: scale(0.94);
+  }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 
 <button id="pause-btn" aria-label="Пауза">⏸️</button>
+
+<div id="touch-controls">
+  <div class="dpad">
+    <button class="ctrl-btn dpad-up"    data-dir="up"    aria-label="Вверх">▲</button>
+    <button class="ctrl-btn dpad-left"  data-dir="left"  aria-label="Влево">◀</button>
+    <button class="ctrl-btn dpad-down"  data-dir="down"  aria-label="Вниз">▼</button>
+    <button class="ctrl-btn dpad-right" data-dir="right" aria-label="Вправо">▶</button>
+  </div>
+  <button class="attack-btn" id="attack-btn" aria-label="Удар">⚔️</button>
+</div>
 
 <div id="pause-overlay" class="hidden">
   <h2>ПАУЗА</h2>
@@ -139,6 +215,9 @@
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
+  // Угол удара: 133°
+  const SWING_ARC = 133 * Math.PI / 180;
+
   const player = {
     x: 0, y: 0,
     radius: 20,
@@ -147,7 +226,7 @@
     stickLength: 55,
     stickThickness: 9,
     swingTime: 0,
-    swingDuration: 0.174,             // 0.2 / 1.15
+    swingDuration: 0.174,
     swingCooldown: 0,
     swingDir: 1,
   };
@@ -244,17 +323,14 @@
   // ============================================================
   const input = {
     keys: new Set(),
-    joyActive: false,
-    joyId: null,
-    joyBaseX: 0, joyBaseY: 0,
-    joyKnobX: 0, joyKnobY: 0,
-    joyMax: 70,
-    joyVecX: 0, joyVecY: 0,
   };
+
+  // Экранные кнопки
+  const pressedDirs = new Set();  // 'up' | 'down' | 'left' | 'right'
+  let attackHeld = false;
 
   let attackQueued = false;
   let mouseDown = false;
-  const attackTouches = new Set();
 
   window.addEventListener('keydown', (e) => {
     resumeAudio();
@@ -264,6 +340,7 @@
   });
   window.addEventListener('keyup', (e) => input.keys.delete(e.code));
 
+  // Мышь — для ПК
   canvas.addEventListener('mousedown', (e) => {
     resumeAudio();
     if (e.button === 0) mouseDown = true;
@@ -271,65 +348,57 @@
   window.addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  canvas.addEventListener('touchstart', (e) => {
+  // Экранные кнопки направления
+  const dpadButtons = document.querySelectorAll('.dpad .ctrl-btn');
+  dpadButtons.forEach((btn) => {
+    const dir = btn.dataset.dir;
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      resumeAudio();
+      pressedDirs.add(dir);
+      btn.classList.add('pressed');
+    });
+    const release = () => {
+      pressedDirs.delete(dir);
+      btn.classList.remove('pressed');
+    };
+    btn.addEventListener('pointerup', release);
+    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('lostpointercapture', release);
+  });
+
+  // Экранная кнопка удара
+  const attackBtnEl = document.getElementById('attack-btn');
+  attackBtnEl.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     resumeAudio();
-    for (const t of e.changedTouches) {
-      const px = t.clientX, py = t.clientY;
-      if (px < W * 0.5 && !input.joyActive) {
-        input.joyActive = true;
-        input.joyId = t.identifier;
-        input.joyBaseX = px; input.joyBaseY = py;
-        input.joyKnobX = px; input.joyKnobY = py;
-        input.joyVecX = 0; input.joyVecY = 0;
-      } else {
-        attackTouches.add(t.identifier);
-        attackQueued = true;
-      }
-    }
-  }, { passive: false });
-
-  canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    for (const t of e.changedTouches) {
-      if (t.identifier !== input.joyId) continue;
-      let dx = t.clientX - input.joyBaseX;
-      let dy = t.clientY - input.joyBaseY;
-      const d = Math.hypot(dx, dy);
-      const max = input.joyMax;
-      if (d > max) { dx = dx / d * max; dy = dy / d * max; }
-      input.joyKnobX = input.joyBaseX + dx;
-      input.joyKnobY = input.joyBaseY + dy;
-      const nx = dx / max, ny = dy / max;
-      const m = Math.hypot(nx, ny);
-      if (m > 0.18) { input.joyVecX = nx; input.joyVecY = ny; }
-      else { input.joyVecX = 0; input.joyVecY = 0; }
-    }
-  }, { passive: false });
-
-  function endTouch(e) {
-    e.preventDefault();
-    for (const t of e.changedTouches) {
-      if (t.identifier === input.joyId) {
-        input.joyActive = false;
-        input.joyId = null;
-        input.joyVecX = 0; input.joyVecY = 0;
-      }
-      attackTouches.delete(t.identifier);
-    }
-  }
-  canvas.addEventListener('touchend', endTouch, { passive: false });
-  canvas.addEventListener('touchcancel', endTouch, { passive: false });
+    attackHeld = true;
+    attackQueued = true;
+    attackBtnEl.classList.add('pressed');
+  });
+  const attackRelease = () => {
+    attackHeld = false;
+    attackBtnEl.classList.remove('pressed');
+  };
+  attackBtnEl.addEventListener('pointerup', attackRelease);
+  attackBtnEl.addEventListener('pointercancel', attackRelease);
+  attackBtnEl.addEventListener('lostpointercapture', attackRelease);
 
   // ============================================================
   //  ЛОГИКА
   // ============================================================
   function getMoveInput() {
-    let mx = input.joyVecX, my = input.joyVecY;
+    let mx = 0, my = 0;
+    if (pressedDirs.has('left'))  mx -= 1;
+    if (pressedDirs.has('right')) mx += 1;
+    if (pressedDirs.has('up'))    my -= 1;
+    if (pressedDirs.has('down'))  my += 1;
+
     if (input.keys.has('KeyA') || input.keys.has('ArrowLeft'))  mx -= 1;
     if (input.keys.has('KeyD') || input.keys.has('ArrowRight')) mx += 1;
     if (input.keys.has('KeyW') || input.keys.has('ArrowUp'))    my -= 1;
     if (input.keys.has('KeyS') || input.keys.has('ArrowDown'))  my += 1;
+
     const m = Math.hypot(mx, my);
     if (m > 1) { mx /= m; my /= m; }
     return { x: mx, y: my, mag: Math.min(m, 1) };
@@ -344,7 +413,7 @@
   function getStickAngle() {
     if (player.swingTime > 0) {
       const prog = Math.min(1, player.swingTime / player.swingDuration);
-      return player.facing + Math.PI / 2 * prog * player.swingDir;
+      return player.facing + SWING_ARC * prog * player.swingDir;
     }
     return player.facing;
   }
@@ -363,7 +432,7 @@
     if (player.swingCooldown > 0) player.swingCooldown -= dt;
 
     const wantAttack =
-      attackQueued || mouseDown || input.keys.has('Space') || attackTouches.size > 0;
+      attackQueued || mouseDown || attackHeld || input.keys.has('Space');
     attackQueued = false;
 
     if (wantAttack && player.swingTime === 0 && player.swingCooldown <= 0) {
@@ -408,7 +477,7 @@
     if (p.swingTime > 0) {
       const prog = Math.min(1, p.swingTime / p.swingDuration);
       const startA = p.facing;
-      const endA = p.facing + Math.PI / 2 * prog * p.swingDir;
+      const endA = p.facing + SWING_ARC * prog * p.swingDir;
       const r = p.radius + p.stickLength;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, startA, endA, p.swingDir < 0);
@@ -428,7 +497,6 @@
     const tx = p.x + Math.cos(stickAngle) * (p.radius + p.stickLength);
     const ty = p.y + Math.sin(stickAngle) * (p.radius + p.stickLength);
 
-    // --- ПАЛКА: спрайт с фолбэком на примитивы ---
     if (stickImgReady) {
       const midX = (bx + tx) / 2;
       const midY = (by + ty) / 2;
@@ -470,27 +538,6 @@
     ctx.fill();
   }
 
-  function drawJoystick() {
-    if (!input.joyActive) return;
-    const { joyBaseX, joyBaseY, joyKnobX, joyKnobY, joyMax } = input;
-
-    ctx.beginPath();
-    ctx.arc(joyBaseX, joyBaseY, joyMax, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(joyKnobX, joyKnobY, joyMax * 0.45, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.28)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-
   function render() {
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, W, H);
@@ -503,8 +550,6 @@
     drawWorld(camX, camY);
     drawPlayer();
     ctx.restore();
-
-    drawJoystick();
   }
 
   // ============================================================
@@ -547,21 +592,22 @@
     player.swingDir = 1;
 
     input.keys.clear();
-    input.joyActive = false;
-    input.joyId = null;
-    input.joyVecX = 0;
-    input.joyVecY = 0;
+    pressedDirs.clear();
+    attackHeld = false;
     attackQueued = false;
     mouseDown = false;
-    attackTouches.clear();
+
+    document.querySelectorAll('.ctrl-btn.pressed, .attack-btn.pressed')
+      .forEach((el) => el.classList.remove('pressed'));
   }
 
   // ============================================================
   //  UI
   // ============================================================
-  const menuEl       = document.getElementById('menu');
-  const pauseBtn     = document.getElementById('pause-btn');
-  const pauseOverlay = document.getElementById('pause-overlay');
+  const menuEl         = document.getElementById('menu');
+  const pauseBtn       = document.getElementById('pause-btn');
+  const pauseOverlay   = document.getElementById('pause-overlay');
+  const touchControls  = document.getElementById('touch-controls');
 
   // ---- Главное меню ----
   document.getElementById('btn-play').addEventListener('click', () => {
@@ -569,6 +615,7 @@
     menuEl.classList.add('hidden');
     pauseOverlay.classList.add('hidden');
     pauseBtn.classList.add('visible');
+    touchControls.classList.add('visible');
     resumeAudio();
     startLoop();
   });
@@ -579,8 +626,12 @@
     stopLoop();
     attackQueued = false;
     mouseDown = false;
-    attackTouches.clear();
+    attackHeld = false;
+    pressedDirs.clear();
+    document.querySelectorAll('.ctrl-btn.pressed, .attack-btn.pressed')
+      .forEach((el) => el.classList.remove('pressed'));
     pauseBtn.classList.remove('visible');
+    touchControls.classList.remove('visible');
     pauseOverlay.classList.remove('hidden');
   });
 
@@ -588,6 +639,7 @@
   document.getElementById('btn-resume').addEventListener('click', () => {
     pauseOverlay.classList.add('hidden');
     pauseBtn.classList.add('visible');
+    touchControls.classList.add('visible');
     resumeAudio();
     startLoop();
   });
@@ -598,6 +650,7 @@
     resetGame();
     pauseOverlay.classList.add('hidden');
     pauseBtn.classList.remove('visible');
+    touchControls.classList.remove('visible');
     menuEl.classList.remove('hidden');
   });
 
