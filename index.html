@@ -215,7 +215,9 @@
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
+  // Угол взмаха: 90°
   const SWING_ARC = 90 * Math.PI / 180;
+  // Фазы взмаха: 0..0.45 замах, 0.45..0.85 удар, 0.85..1 возврат
   const WINDUP_END = 0.45;
   const STRIKE_END = 0.85;
 
@@ -232,13 +234,20 @@
   };
 
   // ============================================================
-  //  СПРАЙТ ПАЛКИ
+  //  СПРАЙТЫ
   // ============================================================
   const stickImg = new Image();
   let stickImgReady = false;
   stickImg.onload = () => { stickImgReady = true; };
   stickImg.onerror = () => { stickImgReady = false; };
   stickImg.src = 'stick.png';
+
+  const PLAYER_SPRITE_SCALE = 3.0;
+  const playerImg = new Image();
+  let playerImgReady = false;
+  playerImg.onload = () => { playerImgReady = true; };
+  playerImg.onerror = () => { playerImgReady = false; };
+  playerImg.src = 'player.png';
 
   let firstInit = true;
 
@@ -294,7 +303,6 @@
     if (audioCtx.state !== 'running') return;
 
     const t = audioCtx.currentTime;
-
     const src = audioCtx.createBufferSource();
     src.buffer = noiseBuffer;
 
@@ -327,7 +335,6 @@
 
   const pressedDirs = new Set();
   let attackHeld = false;
-
   let attackQueued = false;
   let mouseDown = false;
 
@@ -436,8 +443,7 @@
 
     if (player.swingCooldown > 0) player.swingCooldown -= dt;
 
-    const wantAttack =
-      attackQueued || mouseDown || attackHeld || input.keys.has('Space');
+    const wantAttack = attackQueued || mouseDown || attackHeld || input.keys.has('Space');
     attackQueued = false;
 
     if (wantAttack && player.swingTime === 0 && player.swingCooldown <= 0) {
@@ -479,6 +485,7 @@
     const p = player;
     const stickAngle = getStickAngle();
 
+    // След от удара (только фаза удара)
     if (p.swingTime > 0) {
       const prog = Math.min(1, p.swingTime / p.swingDuration);
       if (prog >= WINDUP_END && prog < STRIKE_END) {
@@ -495,16 +502,19 @@
       }
     }
 
+    // Тень (сделана чуть шире, так как рыцарь широкий)
     ctx.beginPath();
-    ctx.arc(p.x, p.y + 4, p.radius, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y + 4, p.radius * 1.2, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.fill();
 
-    const bx = p.x + Math.cos(stickAngle) * p.radius * 0.55;
-    const by = p.y + Math.sin(stickAngle) * p.radius * 0.55;
+    // Основание палки вынесено к кулакам (1.1 вместо 0.55)
+    const bx = p.x + Math.cos(stickAngle) * p.radius * 1.1;
+    const by = p.y + Math.sin(stickAngle) * p.radius * 1.1;
     const tx = p.x + Math.cos(stickAngle) * (p.radius + p.stickLength);
     const ty = p.y + Math.sin(stickAngle) * (p.radius + p.stickLength);
 
+    // --- ПАЛКА ---
     if (stickImgReady) {
       const midX = (bx + tx) / 2;
       const midY = (by + ty) / 2;
@@ -532,18 +542,32 @@
       ctx.stroke();
     }
 
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-    ctx.fillStyle = '#4a9eff';
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#1e6fd9';
-    ctx.stroke();
+    // --- ПЕРСОНАЖ (РЫЦАРЬ) ---
+    if (playerImgReady) {
+      const drawW = p.radius * PLAYER_SPRITE_SCALE;
+      const aspect = playerImg.naturalWidth / playerImg.naturalHeight;
+      const drawH = drawW / aspect;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      // Поворот + Math.PI/2, так как на спрайте рыцарь смотрит вверх
+      ctx.rotate(p.facing + Math.PI / 2);
+      ctx.drawImage(playerImg, -drawW / 2, -drawH / 2, drawW, drawH);
+      ctx.restore();
+    } else {
+      // Фолбэк: синий круг, если картинки нет
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#4a9eff';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#1e6fd9';
+      ctx.stroke();
 
-    ctx.beginPath();
-    ctx.arc(p.x - p.radius * 0.3, p.y - p.radius * 0.3, p.radius * 0.3, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x - p.radius * 0.3, p.y - p.radius * 0.3, p.radius * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fill();
+    }
   }
 
   function render() {
