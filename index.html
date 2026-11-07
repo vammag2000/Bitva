@@ -215,8 +215,14 @@
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-  // Угол удара: 133°
-  const SWING_ARC = 133 * Math.PI / 180;
+  // Угол взмаха: 90°
+  const SWING_ARC = 90 * Math.PI / 180;
+  // Фазы взмаха (% от длительности, сумма = 1.0):
+  //   0..0.45  — замах
+  //   0.45..0.85 — удар
+  //   0.85..1  — возврат
+  const WINDUP_END = 0.45;
+  const STRIKE_END = 0.85;
 
   const player = {
     x: 0, y: 0,
@@ -228,7 +234,6 @@
     swingTime: 0,
     swingDuration: 0.174,
     swingCooldown: 0,
-    swingDir: 1,
   };
 
   // ============================================================
@@ -325,8 +330,7 @@
     keys: new Set(),
   };
 
-  // Экранные кнопки
-  const pressedDirs = new Set();  // 'up' | 'down' | 'left' | 'right'
+  const pressedDirs = new Set();
   let attackHeld = false;
 
   let attackQueued = false;
@@ -340,7 +344,6 @@
   });
   window.addEventListener('keyup', (e) => input.keys.delete(e.code));
 
-  // Мышь — для ПК
   canvas.addEventListener('mousedown', (e) => {
     resumeAudio();
     if (e.button === 0) mouseDown = true;
@@ -348,7 +351,6 @@
   window.addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  // Экранные кнопки направления
   const dpadButtons = document.querySelectorAll('.dpad .ctrl-btn');
   dpadButtons.forEach((btn) => {
     const dir = btn.dataset.dir;
@@ -367,7 +369,6 @@
     btn.addEventListener('lostpointercapture', release);
   });
 
-  // Экранная кнопка удара
   const attackBtnEl = document.getElementById('attack-btn');
   attackBtnEl.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -406,14 +407,27 @@
 
   function startSwing() {
     player.swingTime = 0.0001;
-    player.swingDir = -player.swingDir;
     playSwingSound();
   }
 
+  // Угол палки. Замах → резкий удар → плавный возврат.
   function getStickAngle() {
     if (player.swingTime > 0) {
       const prog = Math.min(1, player.swingTime / player.swingDuration);
-      return player.facing + SWING_ARC * prog * player.swingDir;
+      const halfArc = SWING_ARC / 2;
+      if (prog < WINDUP_END) {
+        // Замах: facing → facing − halfArc
+        const p = prog / WINDUP_END;
+        return player.facing - halfArc * p;
+      } else if (prog < STRIKE_END) {
+        // Удар: facing − halfArc → facing + halfArc
+        const p = (prog - WINDUP_END) / (STRIKE_END - WINDUP_END);
+        return player.facing - halfArc + SWING_ARC * p;
+      } else {
+        // Возврат: facing + halfArc → facing
+        const p = (prog - STRIKE_END) / (1 - STRIKE_END);
+        return player.facing + halfArc - halfArc * p;
+      }
     }
     return player.facing;
   }
@@ -474,17 +488,21 @@
     const p = player;
     const stickAngle = getStickAngle();
 
+    // След от удара — только на фазе удара
     if (p.swingTime > 0) {
       const prog = Math.min(1, p.swingTime / p.swingDuration);
-      const startA = p.facing;
-      const endA = p.facing + SWING_ARC * prog * p.swingDir;
-      const r = p.radius + p.stickLength;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, startA, endA, p.swingDir < 0);
-      ctx.strokeStyle = 'rgba(255, 226, 120, 0.35)';
-      ctx.lineWidth = 20;
-      ctx.lineCap = 'round';
-      ctx.stroke();
+      if (prog >= WINDUP_END && prog < STRIKE_END) {
+        const p2 = (prog - WINDUP_END) / (STRIKE_END - WINDUP_END);
+        const startA = p.facing - SWING_ARC / 2;
+        const endA = startA + SWING_ARC * p2;
+        const r = p.radius + p.stickLength;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, startA, endA, false);
+        ctx.strokeStyle = 'rgba(255, 226, 120, 0.45)';
+        ctx.lineWidth = 20;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
     }
 
     ctx.beginPath();
@@ -589,7 +607,6 @@
     player.facing = -Math.PI / 2;
     player.swingTime = 0;
     player.swingCooldown = 0;
-    player.swingDir = 1;
 
     input.keys.clear();
     pressedDirs.clear();
@@ -609,7 +626,6 @@
   const pauseOverlay   = document.getElementById('pause-overlay');
   const touchControls  = document.getElementById('touch-controls');
 
-  // ---- Главное меню ----
   document.getElementById('btn-play').addEventListener('click', () => {
     resetGame();
     menuEl.classList.add('hidden');
@@ -620,7 +636,6 @@
     startLoop();
   });
 
-  // ---- Кнопка паузы ----
   pauseBtn.addEventListener('click', () => {
     if (!running) return;
     stopLoop();
@@ -635,7 +650,6 @@
     pauseOverlay.classList.remove('hidden');
   });
 
-  // ---- Назад в игру ----
   document.getElementById('btn-resume').addEventListener('click', () => {
     pauseOverlay.classList.add('hidden');
     pauseBtn.classList.add('visible');
@@ -644,7 +658,6 @@
     startLoop();
   });
 
-  // ---- В главное меню ----
   document.getElementById('btn-menu').addEventListener('click', () => {
     stopLoop();
     resetGame();
